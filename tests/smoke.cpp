@@ -16,5 +16,19 @@ int main()
         }
     });
     assert(sum == 4950);
+    assert(pool.Stats().completedTasks > 0);
+
+    auto ranges = kairo::scheduler::PartitionRange(100, 10, 4);
+    assert(!ranges.empty());
+    assert(ranges.front().begin == 0);
+    assert(ranges.back().end == 100);
+
+    kairo::scheduler::Scheduler scheduler({ .workerCount = 2, .defaultMinChunkSize = 4 });
+    std::atomic<std::size_t> count = 0;
+    scheduler.ParallelFor(32, [&](kairo::scheduler::Range range)
+    {
+        count += range.Size();
+    });
+    assert(count == 32);
     return 0;
 }

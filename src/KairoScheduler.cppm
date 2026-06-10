@@ -2,6 +2,7 @@ module;
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <cstddef>
 #include <deque>
@@ -37,6 +38,49 @@ export namespace kairo::scheduler
         }
     };
 
+    struct SchedulerConfig final
+    {
+        // Zero means "use hardware_concurrency fallback".
+        std::size_t workerCount = 0;
+        std::size_t defaultMinChunkSize = 1024;
+        bool spinBeforeSleep = false;
+    };
+
+    struct SchedulerStats final
+    {
+        std::size_t workerCount = 0;
+        std::size_t submittedTasks = 0;
+        std::size_t completedTasks = 0;
+        std::size_t pendingTasks = 0;
+    };
+
+    [[nodiscard]]
+    inline std::vector<Range> PartitionRange(
+        std::size_t count,
+        std::size_t minChunkSize,
+        std::size_t maxChunks)
+    {
+        std::vector<Range> ranges;
+        if (count == 0)
+        {
+            return ranges;
+        }
+
+        minChunkSize = std::max<std::size_t>(minChunkSize, 1);
+        maxChunks = std::max<std::size_t>(maxChunks, 1);
+
+        const std::size_t requestedChunks = (count + minChunkSize - 1) / minChunkSize;
+        const std::size_t chunkCount = std::min(maxChunks, requestedChunks);
+        const std::size_t chunkSize = (count + chunkCount - 1) / chunkCount;
+
+        ranges.reserve(chunkCount);
+        for (std::size_t begin = 0; begin < count; begin += chunkSize)
+        {
+            ranges.push_back({ begin, std::min(begin + chunkSize, count) });
+        }
+        return ranges;
+    }
+
     /// A compact fixed-size thread pool for CPU tensor kernels.
     ///
     /// Input: tasks submitted through `Submit` or `ParallelFor`.
@@ -47,7 +91,14 @@ export namespace kairo::scheduler
     {
     public:
         explicit ThreadPool(std::size_t workerCount = DefaultWorkerCount())
+            : ThreadPool(SchedulerConfig{ .workerCount = workerCount })
         {
+        }
+
+        explicit ThreadPool(SchedulerConfig config)
+            : m_config(config)
+        {
+            std::size_t workerCount = config.workerCount == 0 ? DefaultWorkerCount() : config.workerCount;
             workerCount = std::max<std::size_t>(workerCount, 1);
             m_workers.reserve(workerCount);
             for (std::size_t i = 0; i < workerCount; ++i)
@@ -102,6 +153,7 @@ export namespace kairo::scheduler
                 }
                 m_tasks.push_back(std::move(task));
                 ++m_pending;
+                ++m_submitted;
             }
             m_cv.notify_one();
         }
@@ -115,13 +167,34 @@ export namespace kairo::scheduler
             });
         }
 
+        [[nodiscard]]
+        SchedulerStats Stats() const
+        {
+            std::scoped_lock lock(m_mutex);
+            return {
+                .workerCount = m_workers.size(),
+                .submittedTasks = m_submitted,
+                .completedTasks = m_completed,
+                .pendingTasks = m_pending
+            };
+        }
+
+        [[nodiscard]]
+        const SchedulerConfig& Config() const noexcept
+        {
+            return m_config;
+        }
+
     private:
+        SchedulerConfig m_config;
         std::vector<std::thread> m_workers;
         std::deque<std::function<void()>> m_tasks;
         mutable std::mutex m_mutex;
         std::condition_variable m_cv;
         std::condition_variable m_idleCv;
         std::size_t m_pending = 0;
+        std::size_t m_submitted = 0;
+        std::size_t m_completed = 0;
         bool m_stopping = false;
 
         void WorkerLoop()
@@ -150,6 +223,7 @@ export namespace kairo::scheduler
                 {
                     std::scoped_lock lock(m_mutex);
                     --m_pending;
+                    ++m_completed;
                     if (m_pending == 0 && m_tasks.empty())
                     {
                         m_idleCv.notify_all();
@@ -182,18 +256,67 @@ export namespace kairo::scheduler
             return;
         }
 
-        const std::size_t workerChunks = pool.WorkerCount() * 4;
-        const std::size_t chunkCount = std::min(workerChunks, (count + minChunkSize - 1) / minChunkSize);
-        const std::size_t chunkSize = (count + chunkCount - 1) / chunkCount;
-
-        for (std::size_t begin = 0; begin < count; begin += chunkSize)
+        const std::vector<Range> ranges = PartitionRange(count, minChunkSize, pool.WorkerCount() * 4);
+        for (Range range : ranges)
         {
-            const std::size_t end = std::min(begin + chunkSize, count);
-            pool.Submit([range = Range{ begin, end }, &fn]
+            pool.Submit([range, &fn]
             {
                 fn(range);
             });
         }
         pool.WaitIdle();
     }
+
+    template<typename Fn>
+    void SerialFor(std::size_t count, Fn&& fn)
+    {
+        if (count == 0)
+        {
+            return;
+        }
+        fn(Range{ 0, count });
+    }
+
+    /// A higher-level scheduler facade that owns a pool and applies config
+    /// defaults. Tensor and dataloader code should depend on this facade rather
+    /// than directly constructing pools everywhere.
+    class Scheduler final
+    {
+    public:
+        explicit Scheduler(SchedulerConfig config = {})
+            : m_pool(config)
+        {
+        }
+
+        template<typename Fn>
+        void ParallelFor(std::size_t count, Fn&& fn)
+        {
+            kairo::scheduler::ParallelFor(
+                m_pool,
+                count,
+                m_pool.Config().defaultMinChunkSize,
+                std::forward<Fn>(fn),
+                ExecutionPolicy::Parallel);
+        }
+
+        template<typename Fn>
+        void For(std::size_t count, Fn&& fn, ExecutionPolicy policy)
+        {
+            kairo::scheduler::ParallelFor(
+                m_pool,
+                count,
+                m_pool.Config().defaultMinChunkSize,
+                std::forward<Fn>(fn),
+                policy);
+        }
+
+        [[nodiscard]]
+        SchedulerStats Stats() const
+        {
+            return m_pool.Stats();
+        }
+
+    private:
+        ThreadPool m_pool;
+    };
 }
