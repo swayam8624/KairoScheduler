@@ -15,3 +15,6 @@ target_sources(KairoScheduler
 
 add_executable(KairoSchedulerSmoke tests/smoke.cpp)
 target_link_libraries(KairoSchedulerSmoke PRIVATE KairoScheduler)
+
+enable_testing()
+add_test(NAME KairoSchedulerSmoke COMMAND KairoSchedulerSmoke)
