@@ -1,9 +1,12 @@
-import Kairo.Scheduler;
-
 #include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <mutex>
+#include <span>
 #include <stdexcept>
+#include <vector>
+
+import Kairo.Scheduler;
 
 int main()
 {
@@ -58,5 +61,44 @@ int main()
         rawExceptionPropagated = true;
     }
     assert(rawExceptionPropagated);
+
+    std::vector<int> execution;
+    std::mutex executionMutex;
+    kairo::scheduler::TaskGraph graph;
+    const auto loadA = graph.Add([&]
+    {
+        std::scoped_lock lock(executionMutex);
+        execution.push_back(1);
+    });
+    const auto loadB = graph.Add([&]
+    {
+        std::scoped_lock lock(executionMutex);
+        execution.push_back(2);
+    });
+    const kairo::scheduler::TaskHandle inputs[] = { loadA, loadB };
+    const auto combine = graph.Add([&]
+    {
+        std::scoped_lock lock(executionMutex);
+        assert(execution.size() == 2);
+        execution.push_back(3);
+    }, inputs);
+    const auto finalize = graph.Add([&]
+    {
+        std::scoped_lock lock(executionMutex);
+        assert(execution.size() == 3 && execution.back() == 3);
+        execution.push_back(4);
+    }, std::span<const kairo::scheduler::TaskHandle>(&combine, 1));
+    assert(finalize.index == 3);
+    graph.Execute(pool);
+    assert(execution.size() == 4 && execution.back() == 4);
+
+    kairo::scheduler::CancellationSource cancellation;
+    cancellation.RequestStop();
+    kairo::scheduler::TaskGraph cancelled;
+    bool ran = false;
+    const auto cancelledTask = cancelled.Add([&] { ran = true; });
+    assert(cancelledTask.index == 0);
+    cancelled.Execute(pool, cancellation.Token());
+    assert(!ran);
     return 0;
 }

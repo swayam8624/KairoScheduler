@@ -8,7 +8,9 @@ module;
 #include <deque>
 #include <exception>
 #include <functional>
+#include <memory>
 #include <mutex>
+#include <span>
 #include <stdexcept>
 #include <thread>
 #include <utility>
@@ -52,6 +54,33 @@ export namespace kairo::scheduler
         std::size_t submittedTasks = 0;
         std::size_t completedTasks = 0;
         std::size_t pendingTasks = 0;
+    };
+
+    class CancellationToken final
+    {
+    public:
+        CancellationToken() = default;
+        [[nodiscard]] bool StopRequested() const noexcept
+        {
+            return state_ && state_->load(std::memory_order_acquire);
+        }
+
+    private:
+        explicit CancellationToken(std::shared_ptr<std::atomic<bool>> state)
+            : state_(std::move(state)) {}
+        std::shared_ptr<std::atomic<bool>> state_;
+        friend class CancellationSource;
+    };
+
+    class CancellationSource final
+    {
+    public:
+        CancellationSource() : state_(std::make_shared<std::atomic<bool>>(false)) {}
+        [[nodiscard]] CancellationToken Token() const { return CancellationToken(state_); }
+        void RequestStop() noexcept { state_->store(true, std::memory_order_release); }
+
+    private:
+        std::shared_ptr<std::atomic<bool>> state_;
     };
 
     [[nodiscard]]
@@ -326,6 +355,92 @@ export namespace kairo::scheduler
         std::size_t m_remaining = 0;
         bool m_waitStarted = false;
         std::exception_ptr m_exception;
+    };
+
+    struct TaskHandle final
+    {
+        std::size_t index = 0;
+        friend bool operator==(TaskHandle, TaskHandle) = default;
+    };
+
+    /// Validated dependency graph executed in deterministic topological waves.
+    /// Independent tasks in each wave run concurrently; a cycle, invalid
+    /// dependency, worker exception, or cancellation terminates execution
+    /// predictably.
+    class TaskGraph final
+    {
+    public:
+        [[nodiscard]] TaskHandle Add(
+            std::function<void()> task,
+            std::span<const TaskHandle> dependencies = {})
+        {
+            if (!task) throw std::invalid_argument("TaskGraph requires a callable task.");
+            Node node;
+            node.task = std::move(task);
+            node.dependencies.reserve(dependencies.size());
+            for (TaskHandle dependency : dependencies)
+            {
+                if (dependency.index >= nodes_.size())
+                    throw std::out_of_range("TaskGraph dependency must reference an existing task.");
+                if (std::find(
+                    node.dependencies.begin(), node.dependencies.end(), dependency.index)
+                    != node.dependencies.end())
+                    throw std::invalid_argument("TaskGraph dependency cannot be duplicated.");
+                node.dependencies.push_back(dependency.index);
+            }
+            nodes_.push_back(std::move(node));
+            return { nodes_.size() - 1 };
+        }
+
+        [[nodiscard]] std::size_t Size() const noexcept { return nodes_.size(); }
+
+        /// Input: reusable pool and optional cooperative cancellation token.
+        /// Output: every task runs once after all dependencies complete.
+        /// Cancellation stops before the next topological wave.
+        void Execute(ThreadPool& pool, CancellationToken cancellation = {}) const
+        {
+            if (nodes_.empty()) return;
+            std::vector<std::size_t> indegree(nodes_.size(), 0);
+            std::vector<std::vector<std::size_t>> dependents(nodes_.size());
+            for (std::size_t index = 0; index < nodes_.size(); ++index)
+            {
+                indegree[index] = nodes_[index].dependencies.size();
+                for (std::size_t dependency : nodes_[index].dependencies)
+                    dependents[dependency].push_back(index);
+            }
+            std::vector<std::size_t> ready;
+            for (std::size_t index = 0; index < nodes_.size(); ++index)
+                if (indegree[index] == 0) ready.push_back(index);
+            std::size_t completed = 0;
+            while (!ready.empty())
+            {
+                if (cancellation.StopRequested()) return;
+                TaskGroup group(pool);
+                for (std::size_t index : ready)
+                    group.Submit([this, index, cancellation]
+                    {
+                        if (!cancellation.StopRequested()) nodes_[index].task();
+                    });
+                group.Wait();
+                completed += ready.size();
+                std::vector<std::size_t> next;
+                for (std::size_t index : ready)
+                    for (std::size_t dependent : dependents[index])
+                        if (--indegree[dependent] == 0) next.push_back(dependent);
+                std::sort(next.begin(), next.end());
+                ready = std::move(next);
+            }
+            if (completed != nodes_.size() && !cancellation.StopRequested())
+                throw std::logic_error("TaskGraph contains a dependency cycle.");
+        }
+
+    private:
+        struct Node final
+        {
+            std::function<void()> task;
+            std::vector<std::size_t> dependencies;
+        };
+        std::vector<Node> nodes_;
     };
 
     /// Input: item count, minimum chunk size, callback accepting Range.

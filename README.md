@@ -28,6 +28,9 @@ KairoScheduler provides one scheduling vocabulary:
 - `Scheduler`: owned facade with reusable defaults.
 - `SchedulerStats`: visibility into submitted, completed, and pending work.
 - `ExecutionPolicy`: switch between sequential and parallel execution.
+- `CancellationSource`/`CancellationToken`: shared cooperative stop state.
+- `TaskGraph`: dependency-validated tasks executed in deterministic parallel
+  topological waves.
 
 This keeps higher-level packages focused on their domain:
 
@@ -48,13 +51,11 @@ Implemented now:
 - parallel and sequential execution policies,
 - scheduler facade,
 - worker exceptions are rethrown by `TaskGroup::Wait` or `ThreadPool::WaitIdle`,
+- dependency-aware task graphs with cancellation between execution waves,
 - smoke test.
 
 Planned next:
 
-- cancellation tokens,
-- task groups,
-- dependency DAG scheduler,
 - work stealing,
 - affinity/NUMA hints,
 - profiling timestamps,
