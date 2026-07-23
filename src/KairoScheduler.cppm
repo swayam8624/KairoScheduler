@@ -160,11 +160,20 @@ export namespace kairo::scheduler
 
         void WaitIdle()
         {
-            std::unique_lock lock(m_mutex);
-            m_idleCv.wait(lock, [this]
+            std::exception_ptr exception;
             {
-                return m_pending == 0 && m_tasks.empty();
-            });
+                std::unique_lock lock(m_mutex);
+                m_idleCv.wait(lock, [this]
+                {
+                    return m_pending == 0 && m_tasks.empty();
+                });
+                exception = m_unhandledException;
+                m_unhandledException = nullptr;
+            }
+            if (exception)
+            {
+                std::rethrow_exception(exception);
+            }
         }
 
         [[nodiscard]]
@@ -195,6 +204,7 @@ export namespace kairo::scheduler
         std::size_t m_pending = 0;
         std::size_t m_submitted = 0;
         std::size_t m_completed = 0;
+        std::exception_ptr m_unhandledException;
         bool m_stopping = false;
 
         void WorkerLoop()
@@ -218,7 +228,18 @@ export namespace kairo::scheduler
                     m_tasks.pop_front();
                 }
 
-                task();
+                try
+                {
+                    task();
+                }
+                catch (...)
+                {
+                    std::scoped_lock lock(m_mutex);
+                    if (!m_unhandledException)
+                    {
+                        m_unhandledException = std::current_exception();
+                    }
+                }
 
                 {
                     std::scoped_lock lock(m_mutex);
@@ -231,6 +252,80 @@ export namespace kairo::scheduler
                 }
             }
         }
+    };
+
+    /// Owns a bounded set of pool tasks and transports the first worker
+    /// exception to the submitting thread. A TaskGroup must outlive its tasks;
+    /// call Wait before destruction or before inspecting task output.
+    class TaskGroup final
+    {
+    public:
+        explicit TaskGroup(ThreadPool& pool)
+            : m_pool(pool)
+        {
+        }
+
+        TaskGroup(const TaskGroup&) = delete;
+        TaskGroup& operator=(const TaskGroup&) = delete;
+
+        template<typename Fn>
+        void Submit(Fn&& fn)
+        {
+            {
+                std::scoped_lock lock(m_mutex);
+                if (m_waitStarted)
+                {
+                    throw std::logic_error("TaskGroup::Submit called after Wait.");
+                }
+                ++m_remaining;
+            }
+            m_pool.Submit([this, task = std::forward<Fn>(fn)]() mutable
+            {
+                try
+                {
+                    task();
+                }
+                catch (...)
+                {
+                    std::scoped_lock lock(m_mutex);
+                    if (!m_exception)
+                    {
+                        m_exception = std::current_exception();
+                    }
+                }
+                {
+                    std::scoped_lock lock(m_mutex);
+                    --m_remaining;
+                    if (m_remaining == 0)
+                    {
+                        m_doneCv.notify_all();
+                    }
+                }
+            });
+        }
+
+        void Wait()
+        {
+            std::exception_ptr exception;
+            {
+                std::unique_lock lock(m_mutex);
+                m_waitStarted = true;
+                m_doneCv.wait(lock, [this] { return m_remaining == 0; });
+                exception = m_exception;
+            }
+            if (exception)
+            {
+                std::rethrow_exception(exception);
+            }
+        }
+
+    private:
+        ThreadPool& m_pool;
+        std::mutex m_mutex;
+        std::condition_variable m_doneCv;
+        std::size_t m_remaining = 0;
+        bool m_waitStarted = false;
+        std::exception_ptr m_exception;
     };
 
     /// Input: item count, minimum chunk size, callback accepting Range.
@@ -257,14 +352,15 @@ export namespace kairo::scheduler
         }
 
         const std::vector<Range> ranges = PartitionRange(count, minChunkSize, pool.WorkerCount() * 4);
+        TaskGroup group(pool);
         for (Range range : ranges)
         {
-            pool.Submit([range, &fn]
+            group.Submit([range, &fn]
             {
                 fn(range);
             });
         }
-        pool.WaitIdle();
+        group.Wait();
     }
 
     template<typename Fn>

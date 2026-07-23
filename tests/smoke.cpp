@@ -3,6 +3,7 @@ import Kairo.Scheduler;
 #include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <stdexcept>
 
 int main()
 {
@@ -30,5 +31,32 @@ int main()
         count += range.Size();
     });
     assert(count == 32);
+
+    bool exceptionPropagated = false;
+    try
+    {
+        kairo::scheduler::ParallelFor(pool, 32, 4, [](kairo::scheduler::Range)
+        {
+            throw std::runtime_error("expected task failure");
+        });
+    }
+    catch (const std::runtime_error&)
+    {
+        exceptionPropagated = true;
+    }
+    assert(exceptionPropagated);
+    assert(pool.Stats().pendingTasks == 0);
+
+    pool.Submit([] { throw std::runtime_error("raw task failure"); });
+    bool rawExceptionPropagated = false;
+    try
+    {
+        pool.WaitIdle();
+    }
+    catch (const std::runtime_error&)
+    {
+        rawExceptionPropagated = true;
+    }
+    assert(rawExceptionPropagated);
     return 0;
 }

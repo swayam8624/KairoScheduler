@@ -22,6 +22,7 @@ hard to cancel, and easy to oversubscribe.
 KairoScheduler provides one scheduling vocabulary:
 
 - `ThreadPool`: fixed worker pool with submit/wait semantics.
+- `TaskGroup`: scoped task completion and worker-exception propagation.
 - `ParallelFor`: range splitting for tensor kernels.
 - `PartitionRange`: deterministic chunk planning.
 - `Scheduler`: owned facade with reusable defaults.
@@ -46,6 +47,7 @@ Implemented now:
 - range partitioning,
 - parallel and sequential execution policies,
 - scheduler facade,
+- worker exceptions are rethrown by `TaskGroup::Wait` or `ThreadPool::WaitIdle`,
 - smoke test.
 
 Planned next:
