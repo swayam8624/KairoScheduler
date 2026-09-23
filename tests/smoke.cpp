@@ -8,6 +8,11 @@
 
 import Kairo.Scheduler;
 
+namespace
+{
+    void TestProfilingAndCancellableRanges();
+}
+
 int main()
 {
     kairo::scheduler::ThreadPool pool(2);
@@ -100,6 +105,8 @@ int main()
     assert(cancelledTask.index == 0);
     cancelled.Execute(pool, cancellation.Token());
     assert(!ran);
+
+    TestProfilingAndCancellableRanges();
     return 0;
 }
 
@@ -139,9 +146,3 @@ namespace
     }
 }
 
-struct KairoSchedulerExtendedSmoke final
-{
-    KairoSchedulerExtendedSmoke() { TestProfilingAndCancellableRanges(); }
-};
-
-static KairoSchedulerExtendedSmoke g_extendedSmoke;
