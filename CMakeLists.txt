@@ -5,6 +5,8 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+option(KAIRO_SCHEDULER_BUILD_BENCHMARK "Build scheduler telemetry benchmark" ${PROJECT_IS_TOP_LEVEL})
+
 add_library(KairoScheduler)
 target_sources(KairoScheduler
     PUBLIC
@@ -18,3 +20,9 @@ target_link_libraries(KairoSchedulerSmoke PRIVATE KairoScheduler)
 
 enable_testing()
 add_test(NAME KairoSchedulerSmoke COMMAND KairoSchedulerSmoke)
+
+
+if(KAIRO_SCHEDULER_BUILD_BENCHMARK)
+    add_executable(KairoSchedulerBenchmark benchmarks/benchmark.cpp)
+    target_link_libraries(KairoSchedulerBenchmark PRIVATE KairoScheduler)
+endif()
