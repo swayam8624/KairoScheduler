@@ -102,3 +102,46 @@ int main()
     assert(!ran);
     return 0;
 }
+
+
+namespace
+{
+    void TestProfilingAndCancellableRanges()
+    {
+        kairo::scheduler::ThreadPool pool(4);
+        std::atomic<std::size_t> visited = 0u;
+        kairo::scheduler::ParallelFor(pool, 4096u, 64u,
+            [&visited](kairo::scheduler::Range range)
+            {
+                for (std::size_t index = range.begin; index < range.end; ++index)
+                    visited.fetch_add(1u, std::memory_order_relaxed);
+            });
+        assert(visited == 4096u);
+
+        const auto stats = pool.Stats();
+        assert(stats.completedTasks > 0u);
+        assert(stats.totalTaskNanoseconds > 0u);
+        assert(stats.maxTaskNanoseconds > 0u);
+        assert(stats.peakActiveWorkers >= 1u);
+        assert(stats.peakActiveWorkers <= stats.workerCount);
+        assert(stats.AverageTaskNanoseconds() > 0.0);
+
+        kairo::scheduler::CancellationSource cancellation;
+        cancellation.RequestStop();
+        std::atomic<std::size_t> cancelledVisits = 0u;
+        kairo::scheduler::ParallelForCancellable(
+            pool, 4096u, 64u, cancellation.Token(),
+            [&cancelledVisits](kairo::scheduler::Range range)
+            {
+                cancelledVisits.fetch_add(range.Size(), std::memory_order_relaxed);
+            });
+        assert(cancelledVisits == 0u);
+    }
+}
+
+struct KairoSchedulerExtendedSmoke final
+{
+    KairoSchedulerExtendedSmoke() { TestProfilingAndCancellableRanges(); }
+};
+
+static KairoSchedulerExtendedSmoke g_extendedSmoke;
