@@ -52,14 +52,15 @@ Implemented now:
 - scheduler facade,
 - worker exceptions are rethrown by `TaskGroup::Wait` or `ThreadPool::WaitIdle`,
 - dependency-aware task graphs with cancellation between execution waves,
-- smoke test.
+- cooperative cancellable parallel ranges,
+- worker utilization plus total/max/average task timing statistics,
+- deterministic machine-readable benchmark output,
+- smoke coverage for cancellation, exception propagation and timing.
 
-Planned next:
+Post-v1 experiments:
 
-- work stealing,
-- affinity/NUMA hints,
-- profiling timestamps,
-- integration into `Kairo.Foundation.Math.Tensor`.
+- true per-worker work stealing when benchmarks justify it,
+- affinity/NUMA hints on platforms where they are measurable.
 
 ## Build
 
@@ -77,3 +78,25 @@ math helper. It needs independent testing, profiling, and versioning. Once the
 ML library grows to datasets, inference services, GPU command generation, and
 visual dashboards, a shared scheduler prevents hidden thread pools from fighting
 each other.
+
+
+## Benchmark And Telemetry
+
+`SchedulerStats` reports submitted/completed/pending tasks, active and peak
+worker counts, total task nanoseconds and maximum task nanoseconds. These are
+host-observed CPU timings intended for regressions and higher-level engine
+profiling.
+
+```bash
+cmake -S . -B build -G Ninja \
+  -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm/bin/clang++ \
+  -DKAIRO_SCHEDULER_BUILD_BENCHMARK=ON
+cmake --build build --target KairoSchedulerBenchmark
+./build/KairoSchedulerBenchmark
+```
+
+The executable emits `kairo.scheduler.benchmark.v1` JSON. KairoMath already
+has an opt-in Scheduler/SIMD Tensor execution boundary; Scheduler itself stays
+independent of Tensor types.
+
+See [STATUS.md](STATUS.md) for the frozen Wave-B v1 scope.
