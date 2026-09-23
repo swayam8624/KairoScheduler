@@ -54,6 +54,18 @@ export namespace kairo::scheduler
         std::size_t submittedTasks = 0;
         std::size_t completedTasks = 0;
         std::size_t pendingTasks = 0;
+        std::size_t activeWorkers = 0;
+        std::size_t peakActiveWorkers = 0;
+        std::uint64_t totalTaskNanoseconds = 0;
+        std::uint64_t maxTaskNanoseconds = 0;
+
+        [[nodiscard]] double AverageTaskNanoseconds() const noexcept
+        {
+            return completedTasks == 0
+                ? 0.0
+                : static_cast<double>(totalTaskNanoseconds) /
+                    static_cast<double>(completedTasks);
+        }
     };
 
     class CancellationToken final
@@ -213,7 +225,11 @@ export namespace kairo::scheduler
                 .workerCount = m_workers.size(),
                 .submittedTasks = m_submitted,
                 .completedTasks = m_completed,
-                .pendingTasks = m_pending
+                .pendingTasks = m_pending,
+                .activeWorkers = m_activeWorkers,
+                .peakActiveWorkers = m_peakActiveWorkers,
+                .totalTaskNanoseconds = m_totalTaskNanoseconds,
+                .maxTaskNanoseconds = m_maxTaskNanoseconds
             };
         }
 
@@ -233,6 +249,10 @@ export namespace kairo::scheduler
         std::size_t m_pending = 0;
         std::size_t m_submitted = 0;
         std::size_t m_completed = 0;
+        std::size_t m_activeWorkers = 0;
+        std::size_t m_peakActiveWorkers = 0;
+        std::uint64_t m_totalTaskNanoseconds = 0;
+        std::uint64_t m_maxTaskNanoseconds = 0;
         std::exception_ptr m_unhandledException;
         bool m_stopping = false;
 
@@ -255,8 +275,11 @@ export namespace kairo::scheduler
 
                     task = std::move(m_tasks.front());
                     m_tasks.pop_front();
+                    ++m_activeWorkers;
+                    m_peakActiveWorkers = std::max(m_peakActiveWorkers, m_activeWorkers);
                 }
 
+                const auto started = std::chrono::steady_clock::now();
                 try
                 {
                     task();
@@ -269,11 +292,20 @@ export namespace kairo::scheduler
                         m_unhandledException = std::current_exception();
                     }
                 }
+                const auto finished = std::chrono::steady_clock::now();
+                const auto elapsed = std::chrono::duration_cast<std::chrono::nanoseconds>(
+                    finished - started).count();
 
                 {
                     std::scoped_lock lock(m_mutex);
                     --m_pending;
+                    --m_activeWorkers;
                     ++m_completed;
+                    const std::uint64_t elapsedNs = elapsed > 0
+                        ? static_cast<std::uint64_t>(elapsed)
+                        : 0u;
+                    m_totalTaskNanoseconds += elapsedNs;
+                    m_maxTaskNanoseconds = std::max(m_maxTaskNanoseconds, elapsedNs);
                     if (m_pending == 0 && m_tasks.empty())
                     {
                         m_idleCv.notify_all();
@@ -473,6 +505,45 @@ export namespace kairo::scheduler
             group.Submit([range, &fn]
             {
                 fn(range);
+            });
+        }
+        group.Wait();
+    }
+
+    /// Cooperative cancellable range execution. Already-running chunks are
+    /// allowed to finish; no new callback work begins after cancellation is
+    /// observed. This keeps teardown bounded without forcibly terminating
+    /// worker threads.
+    template<typename Fn>
+    void ParallelForCancellable(
+        ThreadPool& pool,
+        std::size_t count,
+        std::size_t minChunkSize,
+        CancellationToken cancellation,
+        Fn&& fn,
+        ExecutionPolicy policy = ExecutionPolicy::Parallel)
+    {
+        if (count == 0 || cancellation.StopRequested()) return;
+        minChunkSize = std::max<std::size_t>(minChunkSize, 1);
+
+        if (policy == ExecutionPolicy::Sequential ||
+            pool.WorkerCount() <= 1 ||
+            count <= minChunkSize)
+        {
+            if (!cancellation.StopRequested())
+                fn(Range{ 0, count });
+            return;
+        }
+
+        const std::vector<Range> ranges =
+            PartitionRange(count, minChunkSize, pool.WorkerCount() * 4);
+        TaskGroup group(pool);
+        for (Range range : ranges)
+        {
+            group.Submit([range, cancellation, &fn]
+            {
+                if (!cancellation.StopRequested())
+                    fn(range);
             });
         }
         group.Wait();
