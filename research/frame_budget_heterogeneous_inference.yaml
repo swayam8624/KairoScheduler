@@ -1,0 +1,34 @@
+schema: kairo.research-track.v1
+track: R7
+title: Frame-budget-aware heterogeneous inference
+state: hypothesis
+problem: CPU/GPU inference selection that ignores transfer, residency and current frame pressure can miss interactive deadlines.
+hypothesis: Online scheduling using measured compute, transfer and residency cost can reduce deadline misses versus CPU-only, GPU-only and static routing.
+baselines:
+  - cpu_only
+  - gpu_only
+  - static_size_threshold
+  - offline_oracle
+workloads:
+  - vector_kernels
+  - onnx_mlp
+  - onnx_cnn
+  - transformer_decode
+  - mixed_render_compute_pressure
+metrics:
+  - latency_ms_p50
+  - latency_ms_p95
+  - latency_ms_p99
+  - deadline_miss_rate
+  - transfer_bytes
+  - residency_bytes
+  - scheduler_overhead_us
+ablations:
+  - no_transfer_cost
+  - no_residency_cost
+  - no_frame_pressure
+failure_cases:
+  - tiny_batches
+  - cold_start
+  - alternating_workloads
+falsification: Reject if adaptive routing cannot reduce deadline misses over the best static baseline after scheduling overhead.
