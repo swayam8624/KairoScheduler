@@ -110,14 +110,22 @@ export namespace kairo::scheduler
         minChunkSize = std::max<std::size_t>(minChunkSize, 1);
         maxChunks = std::max<std::size_t>(maxChunks, 1);
 
-        const std::size_t requestedChunks = (count + minChunkSize - 1) / minChunkSize;
+        // Ceil division as (a / b) + (a % b != 0) avoids overflow for
+        // count == SIZE_MAX. The old (count + divisor - 1) formulation could
+        // wrap to zero, trigger division by zero, or hang in the range loop.
+        const std::size_t requestedChunks =
+            count / minChunkSize + static_cast<std::size_t>(count % minChunkSize != 0);
         const std::size_t chunkCount = std::min(maxChunks, requestedChunks);
-        const std::size_t chunkSize = (count + chunkCount - 1) / chunkCount;
+        const std::size_t chunkSize =
+            count / chunkCount + static_cast<std::size_t>(count % chunkCount != 0);
 
         ranges.reserve(chunkCount);
-        for (std::size_t begin = 0; begin < count; begin += chunkSize)
+        for (std::size_t begin = 0; begin < count;)
         {
-            ranges.push_back({ begin, std::min(begin + chunkSize, count) });
+            // Use subtraction to avoid overflow of begin + chunkSize.
+            const std::size_t size = std::min(chunkSize, count - begin);
+            ranges.push_back({ begin, begin + size });
+            begin += size;
         }
         return ranges;
     }
@@ -340,29 +348,42 @@ export namespace kairo::scheduler
                 }
                 ++m_remaining;
             }
-            m_pool.Submit([this, task = std::forward<Fn>(fn)]() mutable
+            try
             {
-                try
+                m_pool.Submit([this, task = std::forward<Fn>(fn)]() mutable
                 {
-                    task();
-                }
-                catch (...)
-                {
-                    std::scoped_lock lock(m_mutex);
-                    if (!m_exception)
+                    try
                     {
-                        m_exception = std::current_exception();
+                        task();
                     }
-                }
-                {
-                    std::scoped_lock lock(m_mutex);
-                    --m_remaining;
-                    if (m_remaining == 0)
+                    catch (...)
                     {
-                        m_doneCv.notify_all();
+                        std::scoped_lock lock(m_mutex);
+                        if (!m_exception)
+                        {
+                            m_exception = std::current_exception();
+                        }
                     }
-                }
-            });
+                    {
+                        std::scoped_lock lock(m_mutex);
+                        --m_remaining;
+                        if (m_remaining == 0)
+                        {
+                            m_doneCv.notify_all();
+                        }
+                    }
+                });
+            }
+            catch (...)
+            {
+                // Capturing Fn or constructing/queuing std::function can throw.
+                // In that case no worker owns the task: undo the reservation
+                // so a subsequent Wait() cannot hang indefinitely.
+                std::scoped_lock lock(m_mutex);
+                --m_remaining;
+                if (m_remaining == 0) m_doneCv.notify_all();
+                throw;
+            }
         }
 
         void Wait()

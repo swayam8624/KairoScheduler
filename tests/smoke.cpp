@@ -1,6 +1,13 @@
+// CI builds Release binaries (NDEBUG), but this smoke executable must still
+// evaluate every regression assertion and the guarded side effects.
+#if defined(NDEBUG)
+#undef NDEBUG
+#endif
+
 #include <atomic>
 #include <cassert>
 #include <cstddef>
+#include <limits>
 #include <mutex>
 #include <span>
 #include <stdexcept>
@@ -32,6 +39,20 @@ int main()
     assert(ranges.front().begin == 0);
     assert(ranges.back().end == 100);
 
+    // Arithmetic is independent of available RAM: no SIZE_MAX buffer is
+    // allocated. This reproduces the previous ceil-division overflow.
+    const auto huge = std::numeric_limits<std::size_t>::max();
+    const auto oneHugeRange = kairo::scheduler::PartitionRange(huge, huge, 4);
+    assert(oneHugeRange.size() == 1u);
+    assert(oneHugeRange.front().begin == 0u);
+    assert(oneHugeRange.front().end == huge);
+    const auto hugeSplit = kairo::scheduler::PartitionRange(huge, 1u, 2u);
+    assert(hugeSplit.size() == 2u);
+    assert(hugeSplit.front().begin == 0u);
+    assert(hugeSplit.front().end == hugeSplit.back().begin);
+    assert(hugeSplit.back().end == huge);
+    assert(hugeSplit.front().Size() + hugeSplit.back().Size() == huge);
+
     kairo::scheduler::Scheduler scheduler({ .workerCount = 2, .defaultMinChunkSize = 4 });
     std::atomic<std::size_t> count = 0;
     scheduler.ParallelFor(32, [&](kairo::scheduler::Range range)
@@ -54,6 +75,29 @@ int main()
     }
     assert(exceptionPropagated);
     assert(pool.Stats().pendingTasks == 0);
+
+    // If capturing a submitted task throws, TaskGroup must roll back the
+    // pending count. Wait() must return rather than waiting for a task that
+    // was never queued.
+    struct ThrowOnCopy final
+    {
+        ThrowOnCopy() = default;
+        ThrowOnCopy(const ThrowOnCopy&) { throw std::runtime_error("copy denied"); }
+        void operator()() const {}
+    };
+    kairo::scheduler::TaskGroup group(pool);
+    ThrowOnCopy uncopyable;
+    bool copyFailed = false;
+    try
+    {
+        group.Submit(uncopyable);
+    }
+    catch (const std::runtime_error&)
+    {
+        copyFailed = true;
+    }
+    assert(copyFailed);
+    group.Wait();
 
     pool.Submit([] { throw std::runtime_error("raw task failure"); });
     bool rawExceptionPropagated = false;
