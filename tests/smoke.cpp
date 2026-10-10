@@ -1,3 +1,9 @@
+// CI builds Release binaries (NDEBUG), but this smoke executable must still
+// evaluate every regression assertion and the guarded side effects.
+#if defined(NDEBUG)
+#undef NDEBUG
+#endif
+
 #include <atomic>
 #include <cassert>
 #include <cstddef>
