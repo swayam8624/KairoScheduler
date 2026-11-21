@@ -1,5 +1,7 @@
 # KairoScheduler
 
+> **Study the source:** The [linked teaching reading guide](docs/SOURCE_READING_ORDER.md) explains modules, API boundaries, dependencies, tests, and key data flows. Original project-owned code and documentation are proposed under the [MIT License](LICENSE) for learning, reuse and further development. Third-party materials retain their respective rights; provenance should be reviewed before redistribution.
+
 KairoScheduler is the CPU execution substrate for the Kairo ML stack. Its job is
 to make tensor kernels, dataloaders, graph executors, and visual-analysis jobs
 parallel without each subsystem inventing its own thread management.
