@@ -1,3 +1,8 @@
+// TEACHING BENCHMARK: Workload uses 2^20 items and 64 parallel iterations,
+// atomically combines per-range checksums, and reports JSON counts/timing.
+// Scheduling overhead, worker count and cache/hardware vary across runs;
+// do not infer that parallel execution is faster than a sequential baseline.
+
 #include <atomic>
 #include <chrono>
 #include <cstddef>
