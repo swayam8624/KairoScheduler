@@ -1,3 +1,9 @@
+// SOURCE STUDY NOTE:
+// ThreadPool, TaskGroup, ParallelFor and TaskGraph provide a shared CPU work-execution substrate for
+// tensor kernels and data processing. Callers own captured data, must respect task dependencies, and
+// observe cancellation/wait semantics.
+// Cross-file guide: docs/SOURCE_READING_ORDER.md.
+
 module;
 
 #include <algorithm>
