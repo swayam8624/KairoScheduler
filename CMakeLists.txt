@@ -1,3 +1,8 @@
+# TEACHING BUILD: C++23 module library and optional smoke/benchmark targets.
+# Source-level assertions and warning flags are not verification until CTest
+# actually executes a compiled binary. The Scheduler has no GPU ownership;
+# KairoMath TensorExecution and MLLibrary import its range/task APIs.
+
 cmake_minimum_required(VERSION 3.28)
 project(KairoScheduler LANGUAGES CXX)
 
