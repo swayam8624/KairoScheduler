@@ -1,3 +1,9 @@
+// TEACHING TEST FILE: This is an executable assertion harness, not Catch2.
+// It explicitly undefines NDEBUG so assert expressions execute even in Release.
+// It checks range coverage including SIZE_MAX overflow edge cases, worker stats,
+// exceptions from both raw tasks and task groups, cancellation and dependency graph
+// behavior. Assertions must actually be run on the target compiler/OS to count as evidence.
+
 // CI builds Release binaries (NDEBUG), but this smoke executable must still
 // evaluate every regression assertion and the guarded side effects.
 #if defined(NDEBUG)
