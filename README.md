@@ -1,3 +1,7 @@
+> **Source study:** [READING_ORDER.md](READING_ORDER.md) links the files in a recommended conceptual order, explaining important APIs and cross-file interactions.
+>
+> **Open source:** Original KairoScheduler code uses [MIT](LICENSE), permitting education and further development; outside SDKs and assets have separate terms. This initial guide does not mean every function is yet annotated or the native toolchain has been rerun.
+
 # KairoScheduler
 
 KairoScheduler is the CPU execution substrate for the Kairo ML stack. Its job is
