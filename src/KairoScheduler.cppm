@@ -90,6 +90,7 @@ export namespace kairo::scheduler
     public:
         CancellationSource() : state_(std::make_shared<std::atomic<bool>>(false)) {}
         [[nodiscard]] CancellationToken Token() const { return CancellationToken(state_); }
+        /// TEACHING API: void RequestStop() — Atomic release store visible to CancellationToken copies; running tasks must check the token to stop.
         void RequestStop() noexcept { state_->store(true, std::memory_order_release); }
 
     private:
@@ -97,6 +98,7 @@ export namespace kairo::scheduler
     };
 
     [[nodiscard]]
+    /// TEACHING API: inline std::vector<Range> PartitionRange( — Split [0,count) into disjoint half-open chunks, using overflow-safe ceil division even when count=SIZE_MAX.
     inline std::vector<Range> PartitionRange(
         std::size_t count,
         std::size_t minChunkSize,
@@ -140,11 +142,13 @@ export namespace kairo::scheduler
     class ThreadPool final
     {
     public:
+        /// TEACHING API: explicit ThreadPool(std::size_t workerCount — Construct fixed worker pool; zero falls back to hardware-concurrency policy and at least one worker.
         explicit ThreadPool(std::size_t workerCount = DefaultWorkerCount())
             : ThreadPool(SchedulerConfig{ .workerCount = workerCount })
         {
         }
 
+        /// TEACHING API: explicit ThreadPool(SchedulerConfig config) — Launch worker threads and retain config for later chunk defaults; callbacks use shared pool ownership.
         explicit ThreadPool(SchedulerConfig config)
             : m_config(config)
         {
@@ -160,6 +164,7 @@ export namespace kairo::scheduler
         ThreadPool(const ThreadPool&) = delete;
         ThreadPool& operator=(const ThreadPool&) = delete;
 
+        /// TEACHING API: ~ThreadPool() — Mark stopping, wake all workers and join them after queued work drains; caller must not destroy pool while dependent TaskGroup remains live.
         ~ThreadPool()
         {
             {
@@ -189,6 +194,7 @@ export namespace kairo::scheduler
             return m_workers.size();
         }
 
+        /// TEACHING API: void Submit(std::function<void()> task) — Queue work under mutex and update pending/submitted counters; reject nonempty tasks after shutdown.
         void Submit(std::function<void()> task)
         {
             if (!task)
@@ -208,6 +214,7 @@ export namespace kairo::scheduler
             m_cv.notify_one();
         }
 
+        /// TEACHING API: void WaitIdle() — Block until no queued/pending work; then rethrow and clear first unhandled raw-task exception.
         void WaitIdle()
         {
             std::exception_ptr exception;
@@ -227,6 +234,7 @@ export namespace kairo::scheduler
         }
 
         [[nodiscard]]
+        /// TEACHING API: SchedulerStats Stats() — Return mutex-protected counters for profiling, not evidence of application-level speedup.
         SchedulerStats Stats() const
         {
             std::scoped_lock lock(m_mutex);
@@ -265,6 +273,7 @@ export namespace kairo::scheduler
         std::exception_ptr m_unhandledException;
         bool m_stopping = false;
 
+        /// TEACHING API: void WorkerLoop() — Wait on condition variable, dequeue one task, execute outside lock, capture first exception and update completion/timing counters.
         void WorkerLoop()
         {
             for (;;)
@@ -339,6 +348,7 @@ export namespace kairo::scheduler
         TaskGroup& operator=(const TaskGroup&) = delete;
 
         template<typename Fn>
+        /// TEACHING API: void Submit(Fn&& fn) — TaskGroup owns completion/exception transfer; increment outstanding count before queueing, undo on queue failure.
         void Submit(Fn&& fn)
         {
             {
@@ -387,6 +397,7 @@ export namespace kairo::scheduler
             }
         }
 
+        /// TEACHING API: void Wait() — Join all TaskGroup submissions and rethrow first task exception; disallow further Submit afterward.
         void Wait()
         {
             std::exception_ptr exception;
@@ -451,6 +462,7 @@ export namespace kairo::scheduler
         /// Input: reusable pool and optional cooperative cancellation token.
         /// Output: every task runs once after all dependencies complete.
         /// Cancellation stops before the next topological wave.
+        /// TEACHING API: void Execute(ThreadPool& pool — Execute nodes in sorted topological waves, waiting for each dependency level; detect cycles and honor cancellation between waves.
         void Execute(ThreadPool& pool, CancellationToken cancellation = {}) const
         {
             if (nodes_.empty()) return;
@@ -501,6 +513,7 @@ export namespace kairo::scheduler
     /// Output: callback invoked across all items.
     /// Task: central range splitting primitive for tensor kernels.
     template<typename Fn>
+    /// TEACHING API: void ParallelFor( — Use sequential fallback for tiny jobs, else PartitionRange + TaskGroup over disjoint ranges; callback references must outlive Wait.
     void ParallelFor(
         ThreadPool& pool,
         std::size_t count,
@@ -537,6 +550,7 @@ export namespace kairo::scheduler
     /// observed. This keeps teardown bounded without forcibly terminating
     /// worker threads.
     template<typename Fn>
+    /// TEACHING API: void ParallelForCancellable( — Skip unstarted work after cooperative stop request; already-running callbacks may finish.
     void ParallelForCancellable(
         ThreadPool& pool,
         std::size_t count,
@@ -572,6 +586,7 @@ export namespace kairo::scheduler
     }
 
     template<typename Fn>
+    /// TEACHING API: void SerialFor( — Invoke callback exactly once over entire [0,count) range, even when caller otherwise uses parallel scheduler.
     void SerialFor(std::size_t count, Fn&& fn)
     {
         if (count == 0)
@@ -587,12 +602,14 @@ export namespace kairo::scheduler
     class Scheduler final
     {
     public:
+        /// TEACHING API: explicit Scheduler(SchedulerConfig config — Own configured ThreadPool and expose simplified tensor/dataloader scheduling entrypoint.
         explicit Scheduler(SchedulerConfig config = {})
             : m_pool(config)
         {
         }
 
         template<typename Fn>
+        /// TEACHING API: void ParallelFor( — Use sequential fallback for tiny jobs, else PartitionRange + TaskGroup over disjoint ranges; callback references must outlive Wait.
         void ParallelFor(std::size_t count, Fn&& fn)
         {
             kairo::scheduler::ParallelFor(
@@ -604,6 +621,7 @@ export namespace kairo::scheduler
         }
 
         template<typename Fn>
+        /// TEACHING API: void For(std::size_t count — Honor per-call sequential/parallel ExecutionPolicy without forcing a new pool allocation.
         void For(std::size_t count, Fn&& fn, ExecutionPolicy policy)
         {
             kairo::scheduler::ParallelFor(
