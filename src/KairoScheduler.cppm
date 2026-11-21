@@ -1,3 +1,9 @@
+// TEACHING MAP — src/KairoScheduler.cppm
+// Defines thread-pool execution, range partitioning, cooperative cancellation and task
+// completion. Downstream callers own captured memory until each job completes; exceptions
+// must cross task-group boundaries safely.
+// Read READING_ORDER.md for public APIs, call paths, preconditions and tests.
+
 module;
 
 #include <algorithm>

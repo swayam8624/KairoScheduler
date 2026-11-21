@@ -1,3 +1,9 @@
+// TEACHING MAP — tests/smoke.cpp
+// Exercises scheduler/task-group concurrency contracts, partitioning, cancellation and
+// errors. It consumes the public scheduler module and should be run under relevant
+// sanitizers for race investigations.
+// Read READING_ORDER.md for public APIs, call paths, preconditions and tests.
+
 // CI builds Release binaries (NDEBUG), but this smoke executable must still
 // evaluate every regression assertion and the guarded side effects.
 #if defined(NDEBUG)

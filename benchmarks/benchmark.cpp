@@ -1,3 +1,8 @@
+// TEACHING MAP — benchmarks/benchmark.cpp
+// Measures scheduling overhead versus useful work for ParallelFor and worker dispatch.
+// Compare equal workloads with a sequential reference and enough warmups.
+// Read READING_ORDER.md for public APIs, call paths, preconditions and tests.
+
 #include <atomic>
 #include <chrono>
 #include <cstddef>
