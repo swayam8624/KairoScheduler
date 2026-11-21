@@ -1,3 +1,4 @@
+// TEACHING MAP: CPU task scheduling interface controls worker/task-group lifetime and parallel dispatch for compute callers. Pay attention to exception propagation, shutdown, data races and work granularity.
 module;
 
 #include <algorithm>
