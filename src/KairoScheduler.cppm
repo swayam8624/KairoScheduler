@@ -73,6 +73,7 @@ export namespace kairo::scheduler
     {
     public:
         CancellationToken() = default;
+        /// TEACHING API: StopRequested — Atomic acquire read of the shared stop flag; cooperative cancellation requires each task to check it.
         [[nodiscard]] bool StopRequested() const noexcept
         {
             return state_ && state_->load(std::memory_order_acquire);
@@ -435,6 +436,7 @@ export namespace kairo::scheduler
     class TaskGraph final
     {
     public:
+        /// TEACHING API: TaskGraph::Add — Register one task and dependencies to earlier handles, rejecting duplicate or nonexistent dependencies.
         [[nodiscard]] TaskHandle Add(
             std::function<void()> task,
             std::span<const TaskHandle> dependencies = {})
