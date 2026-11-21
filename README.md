@@ -1,5 +1,7 @@
 # KairoScheduler
 
+**Learn from implementation:** [Scheduler lifetime and tasks walkthrough](docs/SCHEDULER_WALKTHROUGH.md) · [Source reading order](docs/SOURCE_READING_ORDER.md)
+
 KairoScheduler is the CPU execution substrate for the Kairo ML stack. Its job is
 to make tensor kernels, dataloaders, graph executors, and visual-analysis jobs
 parallel without each subsystem inventing its own thread management.
