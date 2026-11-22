@@ -2,7 +2,7 @@
 
 CPU task execution and deterministic bounded parallel work contracts.
 
-**Start with the worked guide:** [CPU worker pools, task-group errors, dependency waves and cancellation](TASK_SCHEDULING_WALKTHROUGH.md).
+**Start with the worked guide:** [CPU worker pools, task-group errors, dependency waves and cancellation](TASK_SCHEDULING_WALKTHROUGH.md). Then continue with the [advanced concurrency laboratory](ADVANCED_CONCURRENCY_LAB.md), covering nested scheduling deadlocks, memory ownership, data races, cancellation, error propagation, determinism and tests.
 
 Follow source links sequentially. For each API/function, identify its input contract, owning data structure, called modules, failure modes, outputs, test and downstream consumers.
 
