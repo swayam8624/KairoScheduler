@@ -1,4 +1,21 @@
-// TEACHING MAP: CPU task scheduling interface controls worker/task-group lifetime and parallel dispatch for compute callers. Pay attention to exception propagation, shutdown, data races and work granularity.
+// TEACHING MAP: This is a CPU worker-pool scheduler, distinct from a
+// Vulkan/Metal GPU command queue. ThreadPool owns worker threads,
+ // queued tasks, pending count and raw-task exception propagation.
+ // TaskGroup binds a set of submissions to the pool and Wait() transfers
+ // the first group exception to the caller. TaskGraph executes dependency
+ // levels in sorted topological waves and supports cooperative cancellation.
+//
+// CancellationToken is an atomic shared flag, not preemptive termination:
+// running callbacks must check or finish, and TaskGraph checks between
+// waves. ParallelFor partitions independent index ranges. Data-race
+// freedom is the caller's responsibility: splitting [begin,end) does not
+// make shared state safe. SchedulerStats reflect CPU bookkeeping, not
+// proven application-level speedup.
+//
+// KairoMath::TensorExecution and other compute modules use these
+// contracts for selected parallel kernels. Tests/smoke.cpp should
+// validate thrown exceptions, cancellation, lifetime and exact work
+// coverage before larger benchmarks are interpreted.
 module;
 
 #include <algorithm>
@@ -140,6 +157,9 @@ export namespace kairo::scheduler
     /// Output: tasks run on worker threads and synchronized by `WaitIdle`.
     /// Task: provide a reusable scheduling substrate without leaking thread
     /// management into ML operators.
+    // Owns a finite worker set and a mutex/condition-variable task queue.
+    // Destructor wakes workers and joins after queued work completes.
+    // Do not destroy a pool while live TaskGroup closures still borrow it.
     class ThreadPool final
     {
     public:
@@ -216,6 +236,9 @@ export namespace kairo::scheduler
         }
 
         /// TEACHING API: void WaitIdle() — Block until no queued/pending work; then rethrow and clear first unhandled raw-task exception.
+        // Wait for the global pending work count and queue to empty,
+        // then rethrow a stored unhandled raw-task exception. TaskGroup
+        // handles its own callback exceptions separately.
         void WaitIdle()
         {
             std::exception_ptr exception;
@@ -337,6 +360,9 @@ export namespace kairo::scheduler
     /// Owns a bounded set of pool tasks and transports the first worker
     /// exception to the submitting thread. A TaskGroup must outlive its tasks;
     /// call Wait before destruction or before inspecting task output.
+    // Borrowed ThreadPool plus an exception-safe outstanding counter.
+    // Submit increments before queueing and undoes the reservation on
+    // queue failure, preventing Wait from hanging on never-submitted work.
     class TaskGroup final
     {
     public:
@@ -433,6 +459,9 @@ export namespace kairo::scheduler
     /// Independent tasks in each wave run concurrently; a cycle, invalid
     /// dependency, worker exception, or cancellation terminates execution
     /// predictably.
+    // Edges represent prerequisites. Tasks in the same ready set can
+    // run concurrently, but every wave is joined before the next wave
+    // begins. This is simpler than a continuously work-stealing DAG.
     class TaskGraph final
     {
     public:
@@ -465,6 +494,10 @@ export namespace kairo::scheduler
         /// Output: every task runs once after all dependencies complete.
         /// Cancellation stops before the next topological wave.
         /// TEACHING API: void Execute(ThreadPool& pool — Execute nodes in sorted topological waves, waiting for each dependency level; detect cycles and honor cancellation between waves.
+        // Compute indegrees, run dependency-ready nodes as a TaskGroup,
+        // then release dependents after the wave finishes. Cancellation
+        // prevents later waves and is not a guarantee that already
+        // running work can be interrupted.
         void Execute(ThreadPool& pool, CancellationToken cancellation = {}) const
         {
             if (nodes_.empty()) return;
