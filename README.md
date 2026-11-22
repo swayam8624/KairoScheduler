@@ -1,6 +1,6 @@
 # KairoScheduler
 
-**Study the implementation:** [linked source-reading order](docs/SOURCE_READING_ORDER.md) · [Worker lifetime, DAG waves and cancellation](docs/TASK_SCHEDULING_WALKTHROUGH.md).
+**Study the implementation:** [linked source-reading order](docs/SOURCE_READING_ORDER.md) · [Worker lifetime, DAG waves and cancellation](docs/TASK_SCHEDULING_WALKTHROUGH.md) · [Advanced concurrency lab](docs/ADVANCED_CONCURRENCY_LAB.md).
 
 **Learn from implementation:** [Scheduler lifetime and tasks walkthrough](docs/SCHEDULER_WALKTHROUGH.md) · [Source reading order](docs/SOURCE_READING_ORDER.md)
 
