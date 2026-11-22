@@ -2,6 +2,8 @@
 
 CPU task execution and deterministic bounded parallel work contracts.
 
+**Start with the worked guide:** [CPU worker pools, task-group errors, dependency waves and cancellation](TASK_SCHEDULING_WALKTHROUGH.md).
+
 Follow source links sequentially. For each API/function, identify its input contract, owning data structure, called modules, failure modes, outputs, test and downstream consumers.
 
 ## Read in this order
