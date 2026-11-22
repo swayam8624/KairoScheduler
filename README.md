@@ -1,5 +1,7 @@
 # KairoScheduler
 
+**Study the implementation:** [linked source-reading order](docs/SOURCE_READING_ORDER.md) · [Worker lifetime, DAG waves and cancellation](docs/TASK_SCHEDULING_WALKTHROUGH.md).
+
 **Learn from implementation:** [Scheduler lifetime and tasks walkthrough](docs/SCHEDULER_WALKTHROUGH.md) · [Source reading order](docs/SOURCE_READING_ORDER.md)
 
 KairoScheduler is the CPU execution substrate for the Kairo ML stack. Its job is
